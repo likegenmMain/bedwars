@@ -3,20 +3,17 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 local enabled = false
 local lastAttackTime = 0
 local lastCheckTime = 0
-local isSimulatingClick = false
 
 local RANGE = 25
-local CHECK_DELAY = 0.01
+local DELAY = 0.01
 local WALL_CHECK = false
 local REQUIRE_AIM = false
-local AUTO_CLICK = true
 local HIT_CHANCE = 100
 local FOV = 360
 
@@ -135,6 +132,8 @@ local function HasLineOfSight(targetChar)
 end
 
 local function IsInFOV(targetChar)
+    if not REQUIRE_AIM then return true end
+    
     local camera = Workspace.CurrentCamera
     if not camera then return true end
     
@@ -215,6 +214,12 @@ local function Attack(target, dist)
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
+    local now = tick()
+    if now - lastAttackTime < DELAY then return end
+    lastAttackTime = now
+    
+    if math.random(1, 100) > HIT_CHANCE then return end
+    
     local direction = (targetHrp.Position - hrp.Position).Unit
     local spoofedSelfPos = hrp.Position
     
@@ -238,28 +243,9 @@ local function Attack(target, dist)
         }
     }
     
-    local success, err = pcall(function()
+    pcall(function()
         remote:FireServer(unpack(args))
     end)
-    
-    if not success then
-        pcall(function()
-            remote:FireServer(target)
-        end)
-    end
-    
-    if AUTO_CLICK then
-        task.spawn(function()
-            if isSimulatingClick then return end
-            isSimulatingClick = true
-            pcall(function()
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-            end)
-            isSimulatingClick = false
-        end)
-    end
 end
 
 local connection = nil
@@ -271,10 +257,8 @@ local function StartKillaura()
         if not enabled then return end
         
         local now = tick()
-        if now - lastCheckTime < CHECK_DELAY then return end
+        if now - lastCheckTime < 0.01 then return end
         lastCheckTime = now
-        
-        if math.random(1, 100) > HIT_CHANCE then return end
         
         local target, dist = GetClosestTarget()
         if target then
@@ -296,8 +280,10 @@ local function Toggle()
     
     if enabled then
         StartKillaura()
+        print("[Killaura] Включен")
     else
         StopKillaura()
+        print("[Killaura] Выключен")
     end
 end
 
@@ -309,4 +295,3 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 UpdateIndicator()
-print("BedWars Killaura - Press Z")
