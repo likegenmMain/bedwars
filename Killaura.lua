@@ -6,7 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
-local enabled = false
+local enabled = true
 local lastAttackTime = 0
 local lastCheckTime = 0
 
@@ -37,8 +37,8 @@ uiCorner.Parent = indicator
 local statusText = Instance.new("TextLabel")
 statusText.Size = UDim2.new(1, 0, 1, 0)
 statusText.BackgroundTransparency = 1
-statusText.Text = "KILLAURA OFF"
-statusText.TextColor3 = Color3.new(1, 0.4, 0.4)
+statusText.Text = "KILLAURA ON"
+statusText.TextColor3 = Color3.new(0.4, 1, 0.4)
 statusText.Font = Enum.Font.GothamBold
 statusText.TextSize = 12
 statusText.Parent = indicator
@@ -280,10 +280,8 @@ local function Toggle()
     
     if enabled then
         StartKillaura()
-        print("[Killaura] Включен")
     else
         StopKillaura()
-        print("[Killaura] Выключен")
     end
 end
 
@@ -294,4 +292,5 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
+StartKillaura()
 UpdateIndicator()
