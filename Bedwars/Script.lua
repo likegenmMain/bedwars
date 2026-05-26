@@ -16,6 +16,7 @@ local Window = Library:CreateWindow{
 
 local Tabs = {
     Combat = Window:CreateTab{Title = "Combat", Icon = "phosphor-crosshair-bold"},
+    Blatant = Window:CreateTab{Title = "Blatant", Icon = "phosphor-wrench-bold"},
     Settings = Window:CreateTab{Title = "Settings", Icon = "settings"}
 }
 
@@ -27,6 +28,7 @@ local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
 local killauraEnabled = false
@@ -517,6 +519,170 @@ Tabs.Combat:CreateSection("Anti-Knockback")
 Tabs.Combat:CreateToggle("AntiKB", {Title = "Anti-Knockback", Default = false}):OnChanged(function(v) antiKBEnabled = v; if v then StartAntiKB() else StopAntiKB() end end)
 Tabs.Combat:CreateSlider("AntiKBStrength", {Title = "Strength", Default = 0, Min = 0, Max = 100, Rounding = 0}):OnChanged(function(v) antiKBStrength = v end)
 
+local scaffoldEnabled = false
+local scaffoldGridSize = 3
+local scaffoldDelay = 0.05
+local scaffoldYOffset = -3.5
+local scaffoldPredict = 0.15
+local scaffoldLastPlace = 0
+local scaffoldConnection = nil
+local PlaceBlockRemote = nil
+
+local function FindPlaceBlockRemote()
+    local success, remote = pcall(function()
+        return ReplicatedStorage:WaitForChild("rbxts_include", 5):WaitForChild("node_modules"):WaitForChild("@easy-games"):WaitForChild("block-engine"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("PlaceBlock")
+    end)
+    if success then return remote end
+    return nil
+end
+
+task.spawn(function()
+    while not PlaceBlockRemote do
+        PlaceBlockRemote = FindPlaceBlockRemote()
+        if not PlaceBlockRemote then task.wait(2) end
+    end
+end)
+
+local function getWoolName()
+    local inv = ReplicatedStorage:FindFirstChild("Inventories") and ReplicatedStorage.Inventories:FindFirstChild(LocalPlayer.Name)
+    if inv then
+        for _, item in pairs(inv:GetChildren()) do
+            if item.Name:find("wool") then return item.Name end
+        end
+    end
+    return nil
+end
+
+local function snapToGrid(v3)
+    return Vector3.new(
+        math.floor(v3.X / scaffoldGridSize + 0.5) * scaffoldGridSize,
+        math.floor(v3.Y / scaffoldGridSize + 0.5) * scaffoldGridSize,
+        math.floor(v3.Z / scaffoldGridSize + 0.5) * scaffoldGridSize
+    )
+end
+
+local function ScaffoldLoop()
+    if not scaffoldEnabled then return end
+    if not PlaceBlockRemote then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local now = tick()
+    if now - scaffoldLastPlace < scaffoldDelay then return end
+    local wool = getWoolName()
+    if not wool then return end
+    local moveDir = hrp.Velocity * Vector3.new(1, 0, 1)
+    local predictPos = hrp.Position + (moveDir * scaffoldPredict)
+    local targetPos = predictPos + Vector3.new(0, scaffoldYOffset, 0)
+    local gridPos = snapToGrid(targetPos)
+    local bx = math.floor(gridPos.X / scaffoldGridSize)
+    local by = math.floor(gridPos.Y / scaffoldGridSize)
+    local bz = math.floor(gridPos.Z / scaffoldGridSize)
+    local args = {{
+        ["position"] = Vector3.new(bx, by, bz),
+        ["blockType"] = wool,
+        ["blockData"] = 0,
+        ["mouseBlockInfo"] = {
+            ["target"] = {
+                ["blockRef"] = { ["blockPosition"] = Vector3.new(bx, by - 1, bz) },
+                ["hitPosition"] = Vector3.new(gridPos.X, gridPos.Y, gridPos.Z),
+                ["hitNormal"] = Vector3.new(0, 1, 0)
+            },
+            ["placementPosition"] = Vector3.new(bx, by, bz)
+        }
+    }}
+    task.spawn(function() pcall(function() PlaceBlockRemote:InvokeServer(unpack(args)) end) end)
+    scaffoldLastPlace = now
+end
+
+local function StartScaffold()
+    if scaffoldConnection then return end
+    scaffoldConnection = RunService.Heartbeat:Connect(ScaffoldLoop)
+end
+
+local function StopScaffold()
+    if scaffoldConnection then scaffoldConnection:Disconnect(); scaffoldConnection = nil end
+end
+
+Tabs.Blatant:CreateSection("Scaffold")
+Tabs.Blatant:CreateToggle("Scaffold", {Title = "Scaffold", Default = false}):OnChanged(function(v) scaffoldEnabled = v; if v then StartScaffold() else StopScaffold() end end)
+
+local chestStealEnabled = false
+local chestStealRange = 30
+local chestStealDelay = 0.1
+local chestStealLastCheck = 0
+local chestStealConnection = nil
+local ChestRemote = nil
+
+local function GetChestRemote()
+    if ChestRemote then return ChestRemote end
+    for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+        if child:IsA("RemoteFunction") and child.Name:find("ChestGetItem") then
+            ChestRemote = child; return child
+        end
+    end
+    for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+        if child:IsA("RemoteFunction") and (child.Name:lower():find("chest") or child.Name:lower():find("loot")) then
+            ChestRemote = child; return child
+        end
+    end
+    return nil
+end
+
+local function StealFromChest(chest)
+    local remote = GetChestRemote()
+    if not remote then return end
+    local chestFolder = chest:FindFirstChild("ChestFolderValue")
+    if not chestFolder then return end
+    local inventoryFolder = chestFolder.Value
+    if not inventoryFolder then return end
+    local items = inventoryFolder:GetChildren()
+    for _, item in ipairs(items) do
+        if item:IsA("Accessory") or item:IsA("Tool") or item:IsA("Clothing") then
+            task.spawn(function() pcall(function() remote:InvokeServer(inventoryFolder, item) end) end)
+            task.wait(0.05)
+        end
+    end
+end
+
+local function ChestStealLoop()
+    if not chestStealEnabled then return end
+    local remote = GetChestRemote()
+    if not remote then return end
+    local now = tick()
+    if now - chestStealLastCheck < chestStealDelay then return end
+    chestStealLastCheck = now
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local chests = CollectionService:GetTagged("chest")
+    for _, chest in ipairs(chests) do
+        if chest:IsA("BasePart") or chest:IsA("Model") then
+            local chestPos = chest:IsA("BasePart") and chest.Position or (chest.PrimaryPart and chest.PrimaryPart.Position)
+            if chestPos then
+                local dist = (chestPos - root.Position).Magnitude
+                if dist <= chestStealRange then
+                    task.spawn(function() StealFromChest(chest) end)
+                end
+            end
+        end
+    end
+end
+
+local function StartChestSteal()
+    if chestStealConnection then return end
+    chestStealConnection = RunService.Heartbeat:Connect(ChestStealLoop)
+end
+
+local function StopChestSteal()
+    if chestStealConnection then chestStealConnection:Disconnect(); chestStealConnection = nil end
+end
+
+Tabs.Blatant:CreateSection("Chest Stealer")
+Tabs.Blatant:CreateToggle("ChestSteal", {Title = "Chest Stealer", Default = false}):OnChanged(function(v) chestStealEnabled = v; if v then StartChestSteal() else StopChestSteal() end end)
+Tabs.Blatant:CreateSlider("ChestStealRange", {Title = "Range", Default = 30, Min = 5, Max = 50, Rounding = 0}):OnChanged(function(v) chestStealRange = v end)
+
 SaveManager:SetLibrary(Library)
 InterfaceManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
@@ -527,3 +693,4 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
 SaveManager:LoadAutoloadConfig()
+
