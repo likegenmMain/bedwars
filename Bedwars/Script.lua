@@ -9,7 +9,7 @@ local Window = Library:CreateWindow{
     Size = UDim2.fromOffset(830, 525),
     Resize = true,
     MinSize = Vector2.new(470, 380),
-    Acrylic = true,
+    Acrylic = false,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightShift
 }
@@ -26,6 +26,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local LocalPlayer = Players.LocalPlayer
 
 local killauraEnabled = false
@@ -35,9 +36,11 @@ local killauraWallCheck = false
 local killauraRequireAim = false
 local killauraHitChance = 100
 local killauraFOV = 360
+local killauraAutoClick = true
 local killauraLastAttack = 0
 local killauraLastCheck = 0
 local killauraConnection = nil
+local isSimulatingClick = false
 local SwordHitRemote = nil
 
 local function GetSwordRemote()
@@ -154,6 +157,19 @@ local function Attack(target, dist)
         }
     }
     pcall(function() remote:FireServer(unpack(args)) end)
+    
+    if killauraAutoClick then
+        task.spawn(function()
+            if isSimulatingClick then return end
+            isSimulatingClick = true
+            pcall(function()
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.wait(0.01)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+            end)
+            isSimulatingClick = false
+        end)
+    end
 end
 
 local function StartKillaura()
@@ -178,6 +194,7 @@ Tabs.Combat:CreateSlider("KillauraRange", {Title = "Range", Default = 25, Min = 
 Tabs.Combat:CreateSlider("KillauraDelay", {Title = "Delay", Default = 0.01, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) killauraDelay = v end)
 Tabs.Combat:CreateSlider("KillauraHitChance", {Title = "Hit Chance", Default = 100, Min = 0, Max = 100, Rounding = 0}):OnChanged(function(v) killauraHitChance = v end)
 Tabs.Combat:CreateSlider("KillauraFOV", {Title = "FOV", Default = 360, Min = 30, Max = 360, Rounding = 0}):OnChanged(function(v) killauraFOV = v end)
+Tabs.Combat:CreateToggle("KillauraAutoClick", {Title = "Auto Click", Default = true}):OnChanged(function(v) killauraAutoClick = v end)
 Tabs.Combat:CreateToggle("KillauraWallCheck", {Title = "Wall Check", Default = false}):OnChanged(function(v) killauraWallCheck = v end)
 Tabs.Combat:CreateToggle("KillauraRequireAim", {Title = "Require Aim", Default = false}):OnChanged(function(v) killauraRequireAim = v end)
 
@@ -221,63 +238,6 @@ UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then isManualAttacking = false end
 end)
 
-local function PVPGetSwordRemote()
-    if SwordHitRemote and SwordHitRemote.Parent then return SwordHitRemote end
-    local remote = ReplicatedStorage:FindFirstChild("SwordHit")
-    if remote then SwordHitRemote = remote; return remote end
-    for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
-        if child:IsA("RemoteEvent") then
-            local name = child.Name:lower()
-            if name == "swordhit" or name == "attackentity" then
-                SwordHitRemote = child; return child
-            end
-        end
-    end
-    return nil
-end
-
-local function PVPGetWeapon()
-    local char = LocalPlayer.Character
-    if not char then return nil end
-    for _, v in ipairs(char:GetChildren()) do
-        if v:IsA("Accessory") then
-            local name = v.Name:lower()
-            if name:find("sword") or name:find("blade") or name:find("scythe") then return v end
-        end
-    end
-    return nil
-end
-
-local function PVPHasLineOfSight(targetChar)
-    if not pvpHelperWallCheck then return true end
-    local char = LocalPlayer.Character
-    if not char then return false end
-    local origin = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-    local target = targetChar:FindFirstChild("Head") or targetChar:FindFirstChild("HumanoidRootPart")
-    if not origin or not target then return false end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {char, targetChar}
-    params.IgnoreWater = true
-    local result = Workspace:Raycast(origin.Position, target.Position - origin.Position, params)
-    return not (result and result.Instance and result.Instance.CanCollide)
-end
-
-local function PVPIsInFOV(targetChar)
-    if not pvpHelperRequireAim then return true end
-    local camera = Workspace.CurrentCamera
-    if not camera then return true end
-    local char = LocalPlayer.Character
-    if not char then return false end
-    local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-    local targetHead = targetChar:FindFirstChild("Head") or targetChar:FindFirstChild("HumanoidRootPart")
-    if not head or not targetHead then return false end
-    local lookVector = camera.CFrame.LookVector
-    local dirToTarget = (targetHead.Position - head.Position).Unit
-    local angle = math.deg(math.acos(lookVector:Dot(dirToTarget)))
-    return angle <= pvpHelperFOV
-end
-
 local function PVPGetClosestTarget()
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -294,7 +254,7 @@ local function PVPGetClosestTarget()
                 local humanoid = targetChar:FindFirstChild("Humanoid")
                 if targetHrp and humanoid and humanoid.Health > 0 then
                     local dist = (hrp.Position - targetHrp.Position).Magnitude
-                    if dist < closestDist and PVPIsInFOV(targetChar) and PVPHasLineOfSight(targetChar) then
+                    if dist < closestDist and HasLineOfSight(targetChar) then
                         closestDist = dist; closestTarget = targetChar
                     end
                 end
@@ -305,9 +265,9 @@ local function PVPGetClosestTarget()
 end
 
 local function PVPAttack(target, dist)
-    local remote = PVPGetSwordRemote()
+    local remote = GetSwordRemote()
     if not remote then return end
-    local weapon = PVPGetWeapon()
+    local weapon = GetWeapon()
     if not weapon then return end
     local targetHrp = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart
     if not targetHrp then return end
@@ -364,6 +324,100 @@ Tabs.Combat:CreateToggle("PVPHelperWallCheck", {Title = "Wall Check", Default = 
 Tabs.Combat:CreateToggle("PVPHelperRequireAim", {Title = "Require Aim", Default = false}):OnChanged(function(v) pvpHelperRequireAim = v end)
 Tabs.Combat:CreateToggle("PVPHelperExtraDamage", {Title = "Extra Damage", Default = true}):OnChanged(function(v) pvpHelperExtraDamage = v end)
 Tabs.Combat:CreateToggle("PVPHelperExtraKnockback", {Title = "Extra Knockback", Default = true}):OnChanged(function(v) pvpHelperExtraKnockback = v end)
+
+local reachEnabled = false
+local reachDistance = 18
+local reachFOV = 36
+local reachCooldown = 0.12
+local reachWallCheck = false
+local reachSpoofDistance = 14
+local reachLastHit = 0
+
+local function ReachGetClosestTarget()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local closestTarget = nil
+    local closestDist = reachDistance
+    local camera = Workspace.CurrentCamera
+    local myTeam = LocalPlayer.Team
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if myTeam and player.Team and myTeam == player.Team then continue end
+            local targetChar = player.Character
+            if targetChar then
+                local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+                local humanoid = targetChar:FindFirstChild("Humanoid")
+                if targetHrp and humanoid and humanoid.Health > 0 then
+                    local dist = (hrp.Position - targetHrp.Position).Magnitude
+                    if dist < closestDist then
+                        if camera then
+                            local lookVector = camera.CFrame.LookVector
+                            local dirToTarget = (targetHrp.Position - hrp.Position).Unit
+                            local angle = math.deg(math.acos(lookVector:Dot(dirToTarget)))
+                            if angle <= (reachFOV / 2) then
+                                if not reachWallCheck or HasLineOfSight(targetChar) then
+                                    closestDist = dist; closestTarget = targetChar
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestTarget, closestDist
+end
+
+local function PerformReach()
+    local now = tick()
+    if now - reachLastHit < reachCooldown then return end
+    local remote = GetSwordRemote()
+    if not remote then return end
+    local weapon = GetWeapon()
+    if not weapon then return end
+    local target, dist = ReachGetClosestTarget()
+    if not target then return end
+    local targetHrp = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart
+    if not targetHrp then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    reachLastHit = now
+    local direction = (targetHrp.Position - hrp.Position).Unit
+    local spoofedSelfPos = hrp.Position
+    if dist > reachSpoofDistance then spoofedSelfPos = targetHrp.Position - (direction * reachSpoofDistance) end
+    local args = {
+        {
+            chargedAttack = { chargeRatio = 0 },
+            entityInstance = target,
+            validate = {
+                targetPosition = { value = targetHrp.Position },
+                selfPosition = { value = spoofedSelfPos },
+                raycast = {
+                    cameraPosition = { value = spoofedSelfPos + Vector3.new(0, 3, 0) },
+                    cursorDirection = { value = direction }
+                }
+            },
+            weapon = weapon
+        }
+    }
+    pcall(function() remote:FireServer(unpack(args)) end)
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if not reachEnabled then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then PerformReach() end
+end)
+
+Tabs.Combat:CreateSection("Reach")
+Tabs.Combat:CreateToggle("Reach", {Title = "Reach", Default = false}):OnChanged(function(v) reachEnabled = v end)
+Tabs.Combat:CreateSlider("ReachDistance", {Title = "Distance", Default = 18, Min = 14, Max = 30, Rounding = 0}):OnChanged(function(v) reachDistance = v end)
+Tabs.Combat:CreateSlider("ReachFOV", {Title = "FOV", Default = 36, Min = 10, Max = 180, Rounding = 0}):OnChanged(function(v) reachFOV = v end)
+Tabs.Combat:CreateSlider("ReachCooldown", {Title = "Cooldown", Default = 0.12, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) reachCooldown = v end)
+Tabs.Combat:CreateToggle("ReachWallCheck", {Title = "Wall Check", Default = false}):OnChanged(function(v) reachWallCheck = v end)
+Tabs.Combat:CreateSlider("ReachSpoof", {Title = "Spoof Distance", Default = 14, Min = 10, Max = 20, Rounding = 0}):OnChanged(function(v) reachSpoofDistance = v end)
 
 local antiKBEnabled = false
 local antiKBStrength = 0
@@ -467,8 +521,8 @@ SaveManager:SetLibrary(Library)
 InterfaceManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes{}
-InterfaceManager:SetFolder("FluentScriptHub")
-SaveManager:SetFolder("FluentScriptHub/specific-game")
+InterfaceManager:SetFolder("BedwarsScript | Likegenm")
+SaveManager:SetFolder("Bedwars | Likegenm/specific-game")
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
