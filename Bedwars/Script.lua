@@ -190,6 +190,98 @@ local function StopKillaura()
     if killauraConnection then killauraConnection:Disconnect(); killauraConnection = nil end
 end
 
+-- TRIGGER BOT
+local triggerBotEnabled = false
+local triggerBotDelay = 0.05
+local triggerBotWallCheck = false
+local triggerBotHitChance = 100
+local triggerBotLastAttack = 0
+local triggerBotConnection = nil
+
+local function GetTargetUnderCrosshair()
+    local camera = Workspace.CurrentCamera
+    if not camera then return nil end
+    
+    local mouse = LocalPlayer:GetMouse()
+    local target = mouse.Target
+    
+    if target then
+        local character = target.Parent
+        if character and character:FindFirstChild("Humanoid") then
+            local player = Players:GetPlayerFromCharacter(character)
+            if player and player ~= LocalPlayer then
+                local myTeam = LocalPlayer.Team
+                local playerTeam = player.Team
+                if not (myTeam and playerTeam and myTeam == playerTeam) then
+                    if not triggerBotWallCheck or HasLineOfSight(character) then
+                        return character
+                    end
+                end
+            end
+        end
+    end
+    
+    return nil
+end
+
+local function TriggerAttack(target)
+    local remote = GetSwordRemote()
+    if not remote then return end
+    local weapon = GetWeapon()
+    if not weapon then return end
+    local targetHrp = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart
+    if not targetHrp then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    if math.random(1, 100) > triggerBotHitChance then return end
+    
+    local direction = (targetHrp.Position - hrp.Position).Unit
+    local dist = (targetHrp.Position - hrp.Position).Magnitude
+    local spoofedSelfPos = hrp.Position
+    if dist > 14 then spoofedSelfPos = targetHrp.Position - (direction * 13.5) end
+    
+    local args = {
+        {
+            chargedAttack = { chargeRatio = 0 },
+            entityInstance = target,
+            validate = {
+                targetPosition = { value = targetHrp.Position },
+                selfPosition = { value = spoofedSelfPos },
+                raycast = {
+                    cameraPosition = { value = spoofedSelfPos + Vector3.new(0, 3, 0) },
+                    cursorDirection = { value = direction }
+                }
+            },
+            weapon = weapon
+        }
+    }
+    pcall(function() remote:FireServer(unpack(args)) end)
+end
+
+local function TriggerBotLoop()
+    if not triggerBotEnabled then return end
+    
+    local now = tick()
+    if now - triggerBotLastAttack < triggerBotDelay then return end
+    
+    local target = GetTargetUnderCrosshair()
+    if target then
+        triggerBotLastAttack = now
+        TriggerAttack(target)
+    end
+end
+
+local function StartTriggerBot()
+    if triggerBotConnection then return end
+    triggerBotConnection = RunService.Heartbeat:Connect(TriggerBotLoop)
+end
+
+local function StopTriggerBot()
+    if triggerBotConnection then triggerBotConnection:Disconnect(); triggerBotConnection = nil end
+end
+
 Tabs.Combat:CreateSection("Killaura")
 Tabs.Combat:CreateToggle("Killaura", {Title = "Killaura", Default = false}):OnChanged(function(v) killauraEnabled = v; if v then StartKillaura() else StopKillaura() end end)
 Tabs.Combat:CreateSlider("KillauraRange", {Title = "Range", Default = 25, Min = 5, Max = 50, Rounding = 0}):OnChanged(function(v) killauraRange = v end)
@@ -199,6 +291,13 @@ Tabs.Combat:CreateSlider("KillauraFOV", {Title = "FOV", Default = 360, Min = 30,
 Tabs.Combat:CreateToggle("KillauraAutoClick", {Title = "Auto Click", Default = true}):OnChanged(function(v) killauraAutoClick = v end)
 Tabs.Combat:CreateToggle("KillauraWallCheck", {Title = "Wall Check", Default = false}):OnChanged(function(v) killauraWallCheck = v end)
 Tabs.Combat:CreateToggle("KillauraRequireAim", {Title = "Require Aim", Default = false}):OnChanged(function(v) killauraRequireAim = v end)
+
+-- TRIGGER BOT SECTION
+Tabs.Combat:CreateSection("Trigger Bot")
+Tabs.Combat:CreateToggle("TriggerBot", {Title = "Trigger Bot", Default = false}):OnChanged(function(v) triggerBotEnabled = v; if v then StartTriggerBot() else StopTriggerBot() end end)
+Tabs.Combat:CreateSlider("TriggerBotDelay", {Title = "Delay", Default = 0.05, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) triggerBotDelay = v end)
+Tabs.Combat:CreateSlider("TriggerBotHitChance", {Title = "Hit Chance", Default = 100, Min = 0, Max = 100, Rounding = 0}):OnChanged(function(v) triggerBotHitChance = v end)
+Tabs.Combat:CreateToggle("TriggerBotWallCheck", {Title = "Wall Check", Default = false}):OnChanged(function(v) triggerBotWallCheck = v end)
 
 local pvpHelperEnabled = false
 local pvpHelperRange = 25
@@ -683,6 +782,79 @@ Tabs.Blatant:CreateSection("Chest Stealer")
 Tabs.Blatant:CreateToggle("ChestSteal", {Title = "Chest Stealer", Default = false}):OnChanged(function(v) chestStealEnabled = v; if v then StartChestSteal() else StopChestSteal() end end)
 Tabs.Blatant:CreateSlider("ChestStealRange", {Title = "Range", Default = 30, Min = 5, Max = 50, Rounding = 0}):OnChanged(function(v) chestStealRange = v end)
 
+local antiVoidEnabled = false
+local antiVoidHeight = 50
+local antiVoidRainbow = true
+local antiVoidColor = Color3.fromRGB(255, 0, 0)
+local antiVoidTransparency = 0.3
+local antiVoidPlatform = nil
+local antiVoidConnection = nil
+local antiVoidTouched = nil
+local antiVoidColorConnection = nil
+local antiVoidHue = 0
+
+local function CreateAntiVoidPlatform()
+    if antiVoidPlatform then antiVoidPlatform:Destroy() end
+    antiVoidPlatform = Instance.new("Part")
+    antiVoidPlatform.Name = "AntiVoidPlatform"
+    antiVoidPlatform.Size = Vector3.new(2048, 5, 2048)
+    antiVoidPlatform.Position = Vector3.new(0, antiVoidHeight, 0)
+    antiVoidPlatform.Anchored = true
+    antiVoidPlatform.CanCollide = false
+    antiVoidPlatform.Transparency = antiVoidTransparency
+    antiVoidPlatform.CastShadow = false
+    antiVoidPlatform.CanQuery = false
+    antiVoidPlatform.Material = Enum.Material.Neon
+    antiVoidPlatform.Parent = Workspace
+    
+    if antiVoidTouched then antiVoidTouched:Disconnect() end
+    antiVoidTouched = antiVoidPlatform.Touched:Connect(function(hit)
+        local char = LocalPlayer.Character
+        if not char then return end
+        local humanoid = char:FindFirstChild("Humanoid")
+        local rootPart = char:FindFirstChild("HumanoidRootPart")
+        if humanoid and rootPart and hit.Parent == char then
+            rootPart.Velocity = Vector3.new(rootPart.Velocity.X, 100, rootPart.Velocity.Z)
+        end
+    end)
+    
+    if antiVoidColorConnection then antiVoidColorConnection:Disconnect() end
+    antiVoidColorConnection = RunService.Heartbeat:Connect(function()
+        if not antiVoidPlatform then return end
+        antiVoidPlatform.Position = Vector3.new(0, antiVoidHeight, 0)
+        antiVoidPlatform.Transparency = antiVoidTransparency
+        if antiVoidRainbow then
+            antiVoidHue = (antiVoidHue + 0.0002) % 1
+            antiVoidPlatform.Color = Color3.fromHSV(antiVoidHue, 1, 1)
+        else
+            antiVoidPlatform.Color = antiVoidColor
+        end
+    end)
+end
+
+local function StartAntiVoid()
+    if antiVoidConnection then return end
+    CreateAntiVoidPlatform()
+    antiVoidConnection = RunService.Heartbeat:Connect(function()
+        if not antiVoidEnabled then return end
+        if not antiVoidPlatform or not antiVoidPlatform.Parent then CreateAntiVoidPlatform() end
+    end)
+end
+
+local function StopAntiVoid()
+    if antiVoidConnection then antiVoidConnection:Disconnect(); antiVoidConnection = nil end
+    if antiVoidTouched then antiVoidTouched:Disconnect(); antiVoidTouched = nil end
+    if antiVoidColorConnection then antiVoidColorConnection:Disconnect(); antiVoidColorConnection = nil end
+    if antiVoidPlatform then antiVoidPlatform:Destroy(); antiVoidPlatform = nil end
+end
+
+Tabs.Blatant:CreateSection("Anti Void")
+Tabs.Blatant:CreateToggle("AntiVoid", {Title = "Anti Void", Default = false}):OnChanged(function(v) antiVoidEnabled = v; if v then StartAntiVoid() else StopAntiVoid() end end)
+Tabs.Blatant:CreateSlider("AntiVoidHeight", {Title = "Height", Default = 50, Min = 0, Max = 100, Rounding = 0}):OnChanged(function(v) antiVoidHeight = v end)
+Tabs.Blatant:CreateToggle("AntiVoidRainbow", {Title = "Rainbow", Default = true}):OnChanged(function(v) antiVoidRainbow = v end)
+Tabs.Blatant:CreateColorpicker("AntiVoidColor", {Title = "Color", Default = Color3.fromRGB(255, 0, 0)}):OnChanged(function(v) antiVoidColor = v end)
+Tabs.Blatant:CreateSlider("AntiVoidTransparency", {Title = "Transparency", Default = 0.3, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) antiVoidTransparency = v end)
+
 SaveManager:SetLibrary(Library)
 InterfaceManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
@@ -693,4 +865,3 @@ InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
 SaveManager:LoadAutoloadConfig()
-
