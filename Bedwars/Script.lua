@@ -18,6 +18,7 @@ local Tabs = {
     Combat = Window:CreateTab{Title = "Combat", Icon = "phosphor-crosshair-bold"},
     Blatant = Window:CreateTab{Title = "Blatant", Icon = "phosphor-wrench-bold"},
     Auto = Window:CreateTab{Title = "Auto", Icon = "phosphor-play-bold"},
+    Visual = Window:CreateTab{Title = "Visual", Icon = "phosphor-eye-bold"},
     Settings = Window:CreateTab{Title = "Settings", Icon = "settings"}
 }
 
@@ -30,6 +31,7 @@ local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CollectionService = game:GetService("CollectionService")
+local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 local killauraEnabled = false
@@ -686,6 +688,93 @@ end
 Tabs.Blatant:CreateSection("Scaffold")
 Tabs.Blatant:CreateToggle("Scaffold", {Title = "Scaffold", Default = false}):OnChanged(function(v) scaffoldEnabled = v; if v then StartScaffold() else StopScaffold() end end)
 
+local speedHackEnabled = false
+local speedHackValue = 21
+local speedHackConnection = nil
+
+local function SpeedHackLoop()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local look = Camera.CFrame.LookVector
+    local right = Camera.CFrame.RightVector
+    local mv = Vector3.zero
+    if UserInputService:IsKeyDown(Enum.KeyCode.W) then mv += Vector3.new(look.X, 0, look.Z).Unit end
+    if UserInputService:IsKeyDown(Enum.KeyCode.S) then mv -= Vector3.new(look.X, 0, look.Z).Unit end
+    if UserInputService:IsKeyDown(Enum.KeyCode.A) then mv -= Vector3.new(right.X, 0, right.Z).Unit end
+    if UserInputService:IsKeyDown(Enum.KeyCode.D) then mv += Vector3.new(right.X, 0, right.Z).Unit end
+    if mv.Magnitude > 0 then
+        hrp.Velocity = Vector3.new(mv.X * speedHackValue, hrp.Velocity.Y, mv.Z * speedHackValue)
+    end
+end
+
+local function StartSpeedHack()
+    if speedHackConnection then return end
+    speedHackConnection = RunService.Heartbeat:Connect(SpeedHackLoop)
+end
+local function StopSpeedHack()
+    if speedHackConnection then speedHackConnection:Disconnect(); speedHackConnection = nil end
+end
+
+Tabs.Blatant:CreateSection("SpeedHack")
+Tabs.Blatant:CreateToggle("SpeedHack", {Title = "SpeedHack", Default = false}):OnChanged(function(v) speedHackEnabled = v; if v then StartSpeedHack() else StopSpeedHack() end end)
+Tabs.Blatant:CreateSlider("SpeedHackValue", {Title = "Speed", Default = 21, Min = 21, Max = 23, Rounding = 0}):OnChanged(function(v) speedHackValue = v end)
+
+local flyEnabled = false
+local flySpeed = 50
+local flyConnection = nil
+
+local function FlyLoop()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local dir = Vector3.zero
+    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0, 1, 0) end
+    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.new(0, 1, 0) end
+    hrp.Velocity = Vector3.new(hrp.Velocity.X, dir.Y * flySpeed, hrp.Velocity.Z)
+end
+
+local function StartFly()
+    if flyConnection then return end
+    workspace.Gravity = 0
+    flyConnection = RunService.Heartbeat:Connect(FlyLoop)
+end
+
+local function StopFly()
+    if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
+    workspace.Gravity = 196.2
+end
+
+Tabs.Blatant:CreateSection("Fly")
+Tabs.Blatant:CreateToggle("Fly", {Title = "Fly", Default = false}):OnChanged(function(v) flyEnabled = v; if v then StartFly() else StopFly() end end)
+Tabs.Blatant:CreateSlider("FlySpeed", {Title = "Speed", Default = 50, Min = 30, Max = 200, Rounding = 0}):OnChanged(function(v) flySpeed = v end)
+
+local infJumpsEnabled = false
+local infJumpsConnection = nil
+
+local function StartInfJumps()
+    if infJumpsConnection then return end
+    infJumpsConnection = UserInputService.JumpRequest:Connect(function()
+        if not infJumpsEnabled then return end
+        local char = LocalPlayer.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Velocity = Vector3.new(hrp.Velocity.X, 50, hrp.Velocity.Z)
+            end
+        end
+    end)
+end
+
+local function StopInfJumps()
+    if infJumpsConnection then infJumpsConnection:Disconnect(); infJumpsConnection = nil end
+end
+
+Tabs.Blatant:CreateSection("Inf Jumps")
+Tabs.Blatant:CreateToggle("InfJumps", {Title = "Inf Jumps", Default = false}):OnChanged(function(v) infJumpsEnabled = v; if v then StartInfJumps() else StopInfJumps() end end)
+
 local chestStealEnabled = false
 local chestStealRange = 30
 local chestStealDelay = 0.1
@@ -720,7 +809,8 @@ local function StealFromChest(chest)
         if item:IsA("Accessory") or item:IsA("Tool") or item:IsA("Clothing") then
             task.spawn(function() pcall(function() remote:InvokeServer(inventoryFolder, item) end) end)
             task.wait(0.05)
-        end    end
+        end
+    end
 end
 
 local function ChestStealLoop()
@@ -883,29 +973,145 @@ Tabs.Auto:CreateSection("Auto Play")
 Tabs.Auto:CreateToggle("AutoPlay", {Title = "Auto Play", Default = false}):OnChanged(function(v) autoPlayEnabled = v; if v then StartAutoPlay() else StopAutoPlay() end end)
 Tabs.Auto:CreateDropdown("AutoPlayMode", {Title = "Mode", Values = {"queue_16v16", "queue_to4", "queue_to2", "queue_to1", "queue_5v5", "queue_skywars"}, Default = "queue_16v16"}):OnChanged(function(v) autoPlayMode = v end)
 
-local infJumpsEnabled = false
-local infJumpsConnection = nil
+local espEnabled = false
+local tracersEnabled = false
+local fovValue = 120
+local nametagsEnabled = false
+local metalESPEnabled = false
+local espHighlights = {}
+local tracerLines = {}
+local nametagBGs = {}
+local metalESPConnection = nil
+local metalRefreshConnection = nil
 
-local function StartInfJumps()
-    if infJumpsConnection then return end
-    infJumpsConnection = UserInputService.JumpRequest:Connect(function()
-        if not infJumpsEnabled then return end
-        local char = LocalPlayer.Character
-        if char then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                hrp.Velocity = Vector3.new(hrp.Velocity.X, 50, hrp.Velocity.Z)
+local function getTeamColor(player)
+    local team = player.Team
+    if team then return team.TeamColor.Color end
+    return Color3.fromRGB(255, 255, 255)
+end
+
+local function isShopItem(v)
+    if not v then return false end
+    if not v:IsDescendantOf(Workspace) then return true end
+    if v:FindFirstAncestorOfClass("ViewportFrame") then return true end
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg and v:IsDescendantOf(pg) then return true end
+    local map = Workspace:FindFirstChild("Map")
+    if map and map:FindFirstChild("Shops") and v:IsDescendantOf(map.Shops) then return true end
+    return false
+end
+
+local function AddMetalESP(model)
+    if not model:IsA("Model") or isShopItem(model) then return end
+    if model:FindFirstChild("MetalESP_Highlight") then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "MetalESP_Highlight"
+    highlight.FillColor = Color3.fromRGB(255, 170, 0)
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Adornee = model
+    highlight.Parent = model
+end
+
+local function UpdateMetalESP()
+    if not metalESPEnabled then
+        for _, m in ipairs(CollectionService:GetTagged("hidden-metal")) do
+            pcall(function()
+                if m:FindFirstChild("MetalESP_Highlight") then m.MetalESP_Highlight:Destroy() end
+            end)
+        end
+        return
+    end
+    for _, m in ipairs(CollectionService:GetTagged("hidden-metal")) do
+        if not isShopItem(m) then AddMetalESP(m) end
+    end
+end
+
+local function StartMetalESP()
+    if metalESPConnection then return end
+    metalESPConnection = CollectionService:GetInstanceAddedSignal("hidden-metal"):Connect(function(m)
+        if metalESPEnabled and not isShopItem(m) then AddMetalESP(m) end
+    end)
+    metalRefreshConnection = RunService.Heartbeat:Connect(function()
+        if metalESPEnabled then
+            local now = tick()
+            if not metalRefreshConnection.lastUpdate or now - metalRefreshConnection.lastUpdate >= 1 then
+                metalRefreshConnection.lastUpdate = now
+                UpdateMetalESP()
             end
         end
     end)
+    UpdateMetalESP()
 end
 
-local function StopInfJumps()
-    if infJumpsConnection then infJumpsConnection:Disconnect(); infJumpsConnection = nil end
+local function StopMetalESP()
+    if metalESPConnection then metalESPConnection:Disconnect(); metalESPConnection = nil end
+    if metalRefreshConnection then metalRefreshConnection:Disconnect(); metalRefreshConnection = nil end
+    UpdateMetalESP()
 end
 
-Tabs.Blatant:CreateSection("Inf Jumps")
-Tabs.Blatant:CreateToggle("InfJumps", {Title = "Inf Jumps", Default = false}):OnChanged(function(v) infJumpsEnabled = v; if v then StartInfJumps() else StopInfJumps() end end)
+local function updateESP()
+    for _, h in pairs(espHighlights) do h:Destroy() end; table.clear(espHighlights)
+    for _, l in pairs(tracerLines) do l:Remove() end; table.clear(tracerLines)
+    for _, bg in pairs(nametagBGs) do bg:Destroy() end; table.clear(nametagBGs)
+    
+    if not (espEnabled or tracersEnabled or nametagsEnabled) then return end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            local color = getTeamColor(player)
+            
+            if head then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                
+                if espEnabled then
+                    local hl = Instance.new("Highlight"); hl.Parent = player.Character
+                    hl.FillTransparency = 0.5; hl.OutlineTransparency = 0
+                    hl.OutlineColor = Color3.fromRGB(255, 255, 255); hl.FillColor = color; hl.Enabled = true
+                    espHighlights[player] = hl
+                end
+                
+                if tracersEnabled and onScreen then
+                    local mousePos = UserInputService:GetMouseLocation()
+                    local line = Drawing.new("Line")
+                    line.From = Vector2.new(mousePos.X, mousePos.Y)
+                    line.To = Vector2.new(pos.X, pos.Y); line.Color = color
+                    line.Thickness = 3; line.Transparency = 0.5; line.Visible = true
+                    tracerLines[player] = line
+                end
+                
+                if nametagsEnabled then
+                    local bg = Instance.new("BillboardGui"); bg.Size = UDim2.new(0, 100, 0, 30)
+                    bg.StudsOffset = Vector3.new(0, 2.5, 0); bg.AlwaysOnTop = true; bg.Parent = head
+                    local label = Instance.new("TextLabel"); label.Size = UDim2.new(1, 0, 1, 0)
+                    label.BackgroundTransparency = 1; label.Text = player.Name
+                    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    label.TextStrokeTransparency = 0; label.TextSize = 14
+                    label.Font = Enum.Font.GothamBold; label.Parent = bg
+                    nametagBGs[player] = bg
+                end
+            end
+        end
+    end
+end
+
+Tabs.Visual:CreateSection("ESP")
+Tabs.Visual:CreateToggle("ESP", {Title = "ESP", Default = false}):OnChanged(function(v) espEnabled = v end)
+Tabs.Visual:CreateSection("Tracers")
+Tabs.Visual:CreateToggle("Tracers", {Title = "Tracers", Default = false}):OnChanged(function(v) tracersEnabled = v end)
+Tabs.Visual:CreateSection("FOV")
+Tabs.Visual:CreateSlider("FOV", {Title = "FOV", Default = 120, Min = 30, Max = 120, Rounding = 0}):OnChanged(function(v) fovValue = v end)
+Tabs.Visual:CreateSection("NameTags")
+Tabs.Visual:CreateToggle("NameTags", {Title = "NameTags", Default = false}):OnChanged(function(v) nametagsEnabled = v end)
+Tabs.Visual:CreateSection("Metal ESP")
+Tabs.Visual:CreateToggle("MetalESP", {Title = "Metal ESP", Default = false}):OnChanged(function(v) metalESPEnabled = v; if v then StartMetalESP() else StopMetalESP() end end)
+
+RunService.RenderStepped:Connect(function()
+    Camera.FieldOfView = fovValue
+    updateESP()
+end)
 
 SaveManager:SetLibrary(Library)
 InterfaceManager:SetLibrary(Library)
@@ -915,5 +1121,5 @@ InterfaceManager:SetFolder("BedwarsScript | Likegenm")
 SaveManager:SetFolder("Bedwars | Likegenm/specific-game")
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
-Window:SelectTab(1)
+Window:SelectTab("Blatant")
 SaveManager:LoadAutoloadConfig()
