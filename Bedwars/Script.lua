@@ -17,6 +17,7 @@ local Window = Library:CreateWindow{
 local Tabs = {
     Combat = Window:CreateTab{Title = "Combat", Icon = "phosphor-crosshair-bold"},
     Blatant = Window:CreateTab{Title = "Blatant", Icon = "phosphor-wrench-bold"},
+    Auto = Window:CreateTab{Title = "Auto", Icon = "phosphor-play-bold"},
     Settings = Window:CreateTab{Title = "Settings", Icon = "settings"}
 }
 
@@ -190,98 +191,6 @@ local function StopKillaura()
     if killauraConnection then killauraConnection:Disconnect(); killauraConnection = nil end
 end
 
--- TRIGGER BOT
-local triggerBotEnabled = false
-local triggerBotDelay = 0.05
-local triggerBotWallCheck = false
-local triggerBotHitChance = 100
-local triggerBotLastAttack = 0
-local triggerBotConnection = nil
-
-local function GetTargetUnderCrosshair()
-    local camera = Workspace.CurrentCamera
-    if not camera then return nil end
-    
-    local mouse = LocalPlayer:GetMouse()
-    local target = mouse.Target
-    
-    if target then
-        local character = target.Parent
-        if character and character:FindFirstChild("Humanoid") then
-            local player = Players:GetPlayerFromCharacter(character)
-            if player and player ~= LocalPlayer then
-                local myTeam = LocalPlayer.Team
-                local playerTeam = player.Team
-                if not (myTeam and playerTeam and myTeam == playerTeam) then
-                    if not triggerBotWallCheck or HasLineOfSight(character) then
-                        return character
-                    end
-                end
-            end
-        end
-    end
-    
-    return nil
-end
-
-local function TriggerAttack(target)
-    local remote = GetSwordRemote()
-    if not remote then return end
-    local weapon = GetWeapon()
-    if not weapon then return end
-    local targetHrp = target:FindFirstChild("HumanoidRootPart") or target.PrimaryPart
-    if not targetHrp then return end
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    if math.random(1, 100) > triggerBotHitChance then return end
-    
-    local direction = (targetHrp.Position - hrp.Position).Unit
-    local dist = (targetHrp.Position - hrp.Position).Magnitude
-    local spoofedSelfPos = hrp.Position
-    if dist > 14 then spoofedSelfPos = targetHrp.Position - (direction * 13.5) end
-    
-    local args = {
-        {
-            chargedAttack = { chargeRatio = 0 },
-            entityInstance = target,
-            validate = {
-                targetPosition = { value = targetHrp.Position },
-                selfPosition = { value = spoofedSelfPos },
-                raycast = {
-                    cameraPosition = { value = spoofedSelfPos + Vector3.new(0, 3, 0) },
-                    cursorDirection = { value = direction }
-                }
-            },
-            weapon = weapon
-        }
-    }
-    pcall(function() remote:FireServer(unpack(args)) end)
-end
-
-local function TriggerBotLoop()
-    if not triggerBotEnabled then return end
-    
-    local now = tick()
-    if now - triggerBotLastAttack < triggerBotDelay then return end
-    
-    local target = GetTargetUnderCrosshair()
-    if target then
-        triggerBotLastAttack = now
-        TriggerAttack(target)
-    end
-end
-
-local function StartTriggerBot()
-    if triggerBotConnection then return end
-    triggerBotConnection = RunService.Heartbeat:Connect(TriggerBotLoop)
-end
-
-local function StopTriggerBot()
-    if triggerBotConnection then triggerBotConnection:Disconnect(); triggerBotConnection = nil end
-end
-
 Tabs.Combat:CreateSection("Killaura")
 Tabs.Combat:CreateToggle("Killaura", {Title = "Killaura", Default = false}):OnChanged(function(v) killauraEnabled = v; if v then StartKillaura() else StopKillaura() end end)
 Tabs.Combat:CreateSlider("KillauraRange", {Title = "Range", Default = 25, Min = 5, Max = 50, Rounding = 0}):OnChanged(function(v) killauraRange = v end)
@@ -291,13 +200,6 @@ Tabs.Combat:CreateSlider("KillauraFOV", {Title = "FOV", Default = 360, Min = 30,
 Tabs.Combat:CreateToggle("KillauraAutoClick", {Title = "Auto Click", Default = true}):OnChanged(function(v) killauraAutoClick = v end)
 Tabs.Combat:CreateToggle("KillauraWallCheck", {Title = "Wall Check", Default = false}):OnChanged(function(v) killauraWallCheck = v end)
 Tabs.Combat:CreateToggle("KillauraRequireAim", {Title = "Require Aim", Default = false}):OnChanged(function(v) killauraRequireAim = v end)
-
--- TRIGGER BOT SECTION
-Tabs.Combat:CreateSection("Trigger Bot")
-Tabs.Combat:CreateToggle("TriggerBot", {Title = "Trigger Bot", Default = false}):OnChanged(function(v) triggerBotEnabled = v; if v then StartTriggerBot() else StopTriggerBot() end end)
-Tabs.Combat:CreateSlider("TriggerBotDelay", {Title = "Delay", Default = 0.05, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) triggerBotDelay = v end)
-Tabs.Combat:CreateSlider("TriggerBotHitChance", {Title = "Hit Chance", Default = 100, Min = 0, Max = 100, Rounding = 0}):OnChanged(function(v) triggerBotHitChance = v end)
-Tabs.Combat:CreateToggle("TriggerBotWallCheck", {Title = "Wall Check", Default = false}):OnChanged(function(v) triggerBotWallCheck = v end)
 
 local pvpHelperEnabled = false
 local pvpHelperRange = 25
@@ -618,6 +520,83 @@ Tabs.Combat:CreateSection("Anti-Knockback")
 Tabs.Combat:CreateToggle("AntiKB", {Title = "Anti-Knockback", Default = false}):OnChanged(function(v) antiKBEnabled = v; if v then StartAntiKB() else StopAntiKB() end end)
 Tabs.Combat:CreateSlider("AntiKBStrength", {Title = "Strength", Default = 0, Min = 0, Max = 100, Rounding = 0}):OnChanged(function(v) antiKBStrength = v end)
 
+local triggerBotEnabled = false
+local triggerBotDelay = 0.05
+local triggerBotLastAttack = 0
+local triggerBotConnection = nil
+
+local function GetTargetUnderCrosshair()
+    local mouse = LocalPlayer:GetMouse()
+    local target = mouse.Target
+    if target then
+        local character = target.Parent
+        if character and character:FindFirstChild("Humanoid") then
+            local player = Players:GetPlayerFromCharacter(character)
+            if player and player ~= LocalPlayer then
+                local myTeam = LocalPlayer.Team
+                local playerTeam = player.Team
+                if not (myTeam and playerTeam and myTeam == playerTeam) then
+                    return character
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function TriggerAttack(target)
+    local remote = GetSwordRemote()
+    if not remote then return end
+    local weapon = GetWeapon()
+    if not weapon then return end
+    local targetHrp = target:FindFirstChild("HumanoidRootPart")
+    if not targetHrp then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local direction = (targetHrp.Position - hrp.Position).Unit
+    local dist = (targetHrp.Position - hrp.Position).Magnitude
+    local spoofedSelfPos = hrp.Position
+    if dist > 14 then spoofedSelfPos = targetHrp.Position - (direction * 13.5) end
+    local args = {
+        {
+            chargedAttack = { chargeRatio = 0 },
+            entityInstance = target,
+            validate = {
+                targetPosition = { value = targetHrp.Position },
+                selfPosition = { value = spoofedSelfPos },
+                raycast = {
+                    cameraPosition = { value = spoofedSelfPos + Vector3.new(0, 3, 0) },
+                    cursorDirection = { value = direction }
+                }
+            },
+            weapon = weapon
+        }
+    }
+    pcall(function() remote:FireServer(unpack(args)) end)
+end
+
+local function TriggerLoop()
+    if not triggerBotEnabled then return end
+    local now = tick()
+    if now - triggerBotLastAttack < triggerBotDelay then return end
+    local target = GetTargetUnderCrosshair()
+    if target then triggerBotLastAttack = now; TriggerAttack(target) end
+end
+
+local function StartTriggerBot()
+    if triggerBotConnection then return end
+    triggerBotConnection = RunService.Heartbeat:Connect(TriggerLoop)
+end
+
+local function StopTriggerBot()
+    if triggerBotConnection then triggerBotConnection:Disconnect(); triggerBotConnection = nil end
+end
+
+Tabs.Combat:CreateSection("Trigger Bot")
+Tabs.Combat:CreateToggle("TriggerBot", {Title = "Trigger Bot", Default = false}):OnChanged(function(v) triggerBotEnabled = v; if v then StartTriggerBot() else StopTriggerBot() end end)
+Tabs.Combat:CreateSlider("TriggerBotDelay", {Title = "Delay", Default = 0.05, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) triggerBotDelay = v end)
+
 local scaffoldEnabled = false
 local scaffoldGridSize = 3
 local scaffoldDelay = 0.05
@@ -741,8 +720,7 @@ local function StealFromChest(chest)
         if item:IsA("Accessory") or item:IsA("Tool") or item:IsA("Clothing") then
             task.spawn(function() pcall(function() remote:InvokeServer(inventoryFolder, item) end) end)
             task.wait(0.05)
-        end
-    end
+        end    end
 end
 
 local function ChestStealLoop()
@@ -854,6 +832,56 @@ Tabs.Blatant:CreateSlider("AntiVoidHeight", {Title = "Height", Default = 50, Min
 Tabs.Blatant:CreateToggle("AntiVoidRainbow", {Title = "Rainbow", Default = true}):OnChanged(function(v) antiVoidRainbow = v end)
 Tabs.Blatant:CreateColorpicker("AntiVoidColor", {Title = "Color", Default = Color3.fromRGB(255, 0, 0)}):OnChanged(function(v) antiVoidColor = v end)
 Tabs.Blatant:CreateSlider("AntiVoidTransparency", {Title = "Transparency", Default = 0.3, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) antiVoidTransparency = v end)
+
+local autoPlayEnabled = false
+local autoPlayMode = "queue_16v16"
+local autoPlayConnection = nil
+local autoPlayRemote = nil
+local autoPlayLastJoin = 0
+
+task.spawn(function()
+    while not autoPlayRemote do
+        pcall(function()
+            autoPlayRemote = ReplicatedStorage:WaitForChild("events-@easy-games/lobby:shared/event/lobby-events@getEvents.Events", 5):WaitForChild("joinQueue", 5)
+        end)
+        if not autoPlayRemote then task.wait(5) end
+    end
+end)
+
+local function isLobby()
+    return ReplicatedStorage:FindFirstChild("Lobby") ~= nil or game.PlaceId == 6872265039
+end
+
+local function AutoPlayLoop()
+    if not autoPlayEnabled then return end
+    if tick() - autoPlayLastJoin < 10 then return end
+    if isLobby() and autoPlayRemote then
+        autoPlayLastJoin = tick()
+        local modeMap = {
+            ["queue_16v16"] = "bedwars_16v16",
+            ["queue_to4"] = "bedwars_to4",
+            ["queue_to2"] = "bedwars_duels",
+            ["queue_to1"] = "winstreak_1v1",
+            ["queue_5v5"] = "bedwars_5v5",
+            ["queue_skywars"] = "skywars_to2"
+        }
+        local args = {{queueType = modeMap[autoPlayMode] or "winstreak_1v1"}}
+        pcall(function() autoPlayRemote:FireServer(unpack(args)) end)
+    end
+end
+
+local function StartAutoPlay()
+    if autoPlayConnection then return end
+    autoPlayConnection = RunService.Heartbeat:Connect(AutoPlayLoop)
+end
+
+local function StopAutoPlay()
+    if autoPlayConnection then autoPlayConnection:Disconnect(); autoPlayConnection = nil end
+end
+
+Tabs.Auto:CreateSection("Auto Play")
+Tabs.Auto:CreateToggle("AutoPlay", {Title = "Auto Play", Default = false}):OnChanged(function(v) autoPlayEnabled = v; if v then StartAutoPlay() else StopAutoPlay() end end)
+Tabs.Auto:CreateDropdown("AutoPlayMode", {Title = "Mode", Values = {"queue_16v16", "queue_to4", "queue_to2", "queue_to1", "queue_5v5", "queue_skywars"}, Default = "queue_16v16"}):OnChanged(function(v) autoPlayMode = v end)
 
 SaveManager:SetLibrary(Library)
 InterfaceManager:SetLibrary(Library)
