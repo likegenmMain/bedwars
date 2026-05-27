@@ -883,6 +883,30 @@ Tabs.Auto:CreateSection("Auto Play")
 Tabs.Auto:CreateToggle("AutoPlay", {Title = "Auto Play", Default = false}):OnChanged(function(v) autoPlayEnabled = v; if v then StartAutoPlay() else StopAutoPlay() end end)
 Tabs.Auto:CreateDropdown("AutoPlayMode", {Title = "Mode", Values = {"queue_16v16", "queue_to4", "queue_to2", "queue_to1", "queue_5v5", "queue_skywars"}, Default = "queue_16v16"}):OnChanged(function(v) autoPlayMode = v end)
 
+local infJumpsEnabled = false
+local infJumpsConnection = nil
+
+local function StartInfJumps()
+    if infJumpsConnection then return end
+    infJumpsConnection = UserInputService.JumpRequest:Connect(function()
+        if not infJumpsEnabled then return end
+        local char = LocalPlayer.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Velocity = Vector3.new(hrp.Velocity.X, 50, hrp.Velocity.Z)
+            end
+        end
+    end)
+end
+
+local function StopInfJumps()
+    if infJumpsConnection then infJumpsConnection:Disconnect(); infJumpsConnection = nil end
+end
+
+Tabs.Blatant:CreateSection("Inf Jumps")
+Tabs.Blatant:CreateToggle("InfJumps", {Title = "Inf Jumps", Default = false}):OnChanged(function(v) infJumpsEnabled = v; if v then StartInfJumps() else StopInfJumps() end end)
+
 SaveManager:SetLibrary(Library)
 InterfaceManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
