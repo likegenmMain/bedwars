@@ -31,6 +31,7 @@ local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CollectionService = game:GetService("CollectionService")
+local TweenService = game:GetService("TweenService")
 local Camera = Workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
@@ -719,7 +720,7 @@ end
 
 Tabs.Blatant:CreateSection("SpeedHack")
 Tabs.Blatant:CreateToggle("SpeedHack", {Title = "SpeedHack", Default = false}):OnChanged(function(v) speedHackEnabled = v; if v then StartSpeedHack() else StopSpeedHack() end end)
-Tabs.Blatant:CreateSlider("SpeedHackValue", {Title = "Speed", Default = 21, Min = 21, Max = 23, Rounding = 0}):OnChanged(function(v) speedHackValue = v end)
+Tabs.Blatant:CreateSlider("SpeedHackValue", {Title = "Speed", Default = 21, Min = 16, Max = 50, Rounding = 0}):OnChanged(function(v) speedHackValue = v end)
 
 local flyEnabled = false
 local flySpeed = 50
@@ -852,52 +853,64 @@ Tabs.Blatant:CreateSlider("ChestStealRange", {Title = "Range", Default = 30, Min
 
 local antiVoidEnabled = false
 local antiVoidHeight = 50
+local antiVoidMode = "Collide"
 local antiVoidRainbow = true
 local antiVoidColor = Color3.fromRGB(255, 0, 0)
 local antiVoidTransparency = 0.3
 local antiVoidPlatform = nil
 local antiVoidConnection = nil
-local antiVoidTouched = nil
-local antiVoidColorConnection = nil
 local antiVoidHue = 0
 
 local function CreateAntiVoidPlatform()
     if antiVoidPlatform then antiVoidPlatform:Destroy() end
     antiVoidPlatform = Instance.new("Part")
-    antiVoidPlatform.Name = "AntiVoidPlatform"
+    antiVoidPlatform.Name = "AntiVoid"
     antiVoidPlatform.Size = Vector3.new(2048, 5, 2048)
     antiVoidPlatform.Position = Vector3.new(0, antiVoidHeight, 0)
     antiVoidPlatform.Anchored = true
-    antiVoidPlatform.CanCollide = false
+    antiVoidPlatform.CanCollide = true
     antiVoidPlatform.Transparency = antiVoidTransparency
-    antiVoidPlatform.CastShadow = false
-    antiVoidPlatform.CanQuery = false
     antiVoidPlatform.Material = Enum.Material.Neon
-    antiVoidPlatform.Parent = Workspace
+    antiVoidPlatform.Parent = workspace
     
-    if antiVoidTouched then antiVoidTouched:Disconnect() end
-    antiVoidTouched = antiVoidPlatform.Touched:Connect(function(hit)
+    for _, v in ipairs(antiVoidPlatform:GetChildren()) do
+        if v:IsA("Decal") or v:IsA("Texture") then v:Destroy() end
+    end
+    
+    antiVoidPlatform.Touched:Connect(function(hit)
         local char = LocalPlayer.Character
         if not char then return end
-        local humanoid = char:FindFirstChild("Humanoid")
-        local rootPart = char:FindFirstChild("HumanoidRootPart")
-        if humanoid and rootPart and hit.Parent == char then
-            rootPart.Velocity = Vector3.new(rootPart.Velocity.X, 100, rootPart.Velocity.Z)
+        if not hit:IsDescendantOf(char) then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        if antiVoidMode == "Velocity" then
+            hrp.Velocity = Vector3.new(hrp.Velocity.X, 100, hrp.Velocity.Z)
+        elseif antiVoidMode == "Teleport" then
+            local nearestPart, nearestDist = nil, math.huge
+            for _, part in ipairs(workspace:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide and part ~= antiVoidPlatform and not part:IsDescendantOf(char) then
+                    local dist = (hrp.Position - part.Position).Magnitude
+                    if dist < nearestDist then nearestDist = dist; nearestPart = part end
+                end
+            end
+            if nearestPart then
+                local targetPos = nearestPart.Position + Vector3.new(0, 5, 0)
+                TweenService:Create(hrp, TweenInfo.new(1, Enum.EasingStyle.Quad), {CFrame = CFrame.new(targetPos)}):Play()
+            end
         end
     end)
-    
-    if antiVoidColorConnection then antiVoidColorConnection:Disconnect() end
-    antiVoidColorConnection = RunService.Heartbeat:Connect(function()
-        if not antiVoidPlatform then return end
-        antiVoidPlatform.Position = Vector3.new(0, antiVoidHeight, 0)
-        antiVoidPlatform.Transparency = antiVoidTransparency
-        if antiVoidRainbow then
-            antiVoidHue = (antiVoidHue + 0.0002) % 1
-            antiVoidPlatform.Color = Color3.fromHSV(antiVoidHue, 1, 1)
-        else
-            antiVoidPlatform.Color = antiVoidColor
-        end
-    end)
+end
+
+local function UpdateAntiVoid()
+    if not antiVoidPlatform then return end
+    antiVoidPlatform.Transparency = antiVoidTransparency
+    if antiVoidRainbow then
+        antiVoidHue = (antiVoidHue + 0.0002) % 1
+        antiVoidPlatform.Color = Color3.fromHSV(antiVoidHue, 1, 1)
+    else
+        antiVoidPlatform.Color = antiVoidColor
+    end
 end
 
 local function StartAntiVoid()
@@ -906,18 +919,23 @@ local function StartAntiVoid()
     antiVoidConnection = RunService.Heartbeat:Connect(function()
         if not antiVoidEnabled then return end
         if not antiVoidPlatform or not antiVoidPlatform.Parent then CreateAntiVoidPlatform() end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        antiVoidPlatform.Position = Vector3.new(hrp.Position.X, antiVoidHeight, hrp.Position.Z)
+        UpdateAntiVoid()
     end)
 end
 
 local function StopAntiVoid()
     if antiVoidConnection then antiVoidConnection:Disconnect(); antiVoidConnection = nil end
-    if antiVoidTouched then antiVoidTouched:Disconnect(); antiVoidTouched = nil end
-    if antiVoidColorConnection then antiVoidColorConnection:Disconnect(); antiVoidColorConnection = nil end
     if antiVoidPlatform then antiVoidPlatform:Destroy(); antiVoidPlatform = nil end
 end
 
 Tabs.Blatant:CreateSection("Anti Void")
 Tabs.Blatant:CreateToggle("AntiVoid", {Title = "Anti Void", Default = false}):OnChanged(function(v) antiVoidEnabled = v; if v then StartAntiVoid() else StopAntiVoid() end end)
+Tabs.Blatant:CreateDropdown("AntiVoidMode", {Title = "Mode", Values = {"Collide", "Velocity", "Teleport"}, Default = "Collide"}):OnChanged(function(v) antiVoidMode = v end)
 Tabs.Blatant:CreateSlider("AntiVoidHeight", {Title = "Height", Default = 50, Min = 0, Max = 100, Rounding = 0}):OnChanged(function(v) antiVoidHeight = v end)
 Tabs.Blatant:CreateToggle("AntiVoidRainbow", {Title = "Rainbow", Default = true}):OnChanged(function(v) antiVoidRainbow = v end)
 Tabs.Blatant:CreateColorpicker("AntiVoidColor", {Title = "Color", Default = Color3.fromRGB(255, 0, 0)}):OnChanged(function(v) antiVoidColor = v end)
@@ -974,15 +992,10 @@ Tabs.Auto:CreateToggle("AutoPlay", {Title = "Auto Play", Default = false}):OnCha
 Tabs.Auto:CreateDropdown("AutoPlayMode", {Title = "Mode", Values = {"queue_16v16", "queue_to4", "queue_to2", "queue_to1", "queue_5v5", "queue_skywars"}, Default = "queue_16v16"}):OnChanged(function(v) autoPlayMode = v end)
 
 local espEnabled = false
-local tracersEnabled = false
 local fovValue = 120
 local nametagsEnabled = false
-local metalESPEnabled = false
 local espHighlights = {}
-local tracerLines = {}
 local nametagBGs = {}
-local metalESPConnection = nil
-local metalRefreshConnection = nil
 
 local function getTeamColor(player)
     local team = player.Team
@@ -990,73 +1003,11 @@ local function getTeamColor(player)
     return Color3.fromRGB(255, 255, 255)
 end
 
-local function isShopItem(v)
-    if not v then return false end
-    if not v:IsDescendantOf(Workspace) then return true end
-    if v:FindFirstAncestorOfClass("ViewportFrame") then return true end
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if pg and v:IsDescendantOf(pg) then return true end
-    local map = Workspace:FindFirstChild("Map")
-    if map and map:FindFirstChild("Shops") and v:IsDescendantOf(map.Shops) then return true end
-    return false
-end
-
-local function AddMetalESP(model)
-    if not model:IsA("Model") or isShopItem(model) then return end
-    if model:FindFirstChild("MetalESP_Highlight") then return end
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "MetalESP_Highlight"
-    highlight.FillColor = Color3.fromRGB(255, 170, 0)
-    highlight.OutlineColor = Color3.new(1, 1, 1)
-    highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 0
-    highlight.Adornee = model
-    highlight.Parent = model
-end
-
-local function UpdateMetalESP()
-    if not metalESPEnabled then
-        for _, m in ipairs(CollectionService:GetTagged("hidden-metal")) do
-            pcall(function()
-                if m:FindFirstChild("MetalESP_Highlight") then m.MetalESP_Highlight:Destroy() end
-            end)
-        end
-        return
-    end
-    for _, m in ipairs(CollectionService:GetTagged("hidden-metal")) do
-        if not isShopItem(m) then AddMetalESP(m) end
-    end
-end
-
-local function StartMetalESP()
-    if metalESPConnection then return end
-    metalESPConnection = CollectionService:GetInstanceAddedSignal("hidden-metal"):Connect(function(m)
-        if metalESPEnabled and not isShopItem(m) then AddMetalESP(m) end
-    end)
-    metalRefreshConnection = RunService.Heartbeat:Connect(function()
-        if metalESPEnabled then
-            local now = tick()
-            if not metalRefreshConnection.lastUpdate or now - metalRefreshConnection.lastUpdate >= 1 then
-                metalRefreshConnection.lastUpdate = now
-                UpdateMetalESP()
-            end
-        end
-    end)
-    UpdateMetalESP()
-end
-
-local function StopMetalESP()
-    if metalESPConnection then metalESPConnection:Disconnect(); metalESPConnection = nil end
-    if metalRefreshConnection then metalRefreshConnection:Disconnect(); metalRefreshConnection = nil end
-    UpdateMetalESP()
-end
-
 local function updateESP()
     for _, h in pairs(espHighlights) do h:Destroy() end; table.clear(espHighlights)
-    for _, l in pairs(tracerLines) do l:Remove() end; table.clear(tracerLines)
     for _, bg in pairs(nametagBGs) do bg:Destroy() end; table.clear(nametagBGs)
     
-    if not (espEnabled or tracersEnabled or nametagsEnabled) then return end
+    if not (espEnabled or nametagsEnabled) then return end
     
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
@@ -1064,22 +1015,11 @@ local function updateESP()
             local color = getTeamColor(player)
             
             if head then
-                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                
                 if espEnabled then
                     local hl = Instance.new("Highlight"); hl.Parent = player.Character
                     hl.FillTransparency = 0.5; hl.OutlineTransparency = 0
                     hl.OutlineColor = Color3.fromRGB(255, 255, 255); hl.FillColor = color; hl.Enabled = true
                     espHighlights[player] = hl
-                end
-                
-                if tracersEnabled and onScreen then
-                    local mousePos = UserInputService:GetMouseLocation()
-                    local line = Drawing.new("Line")
-                    line.From = Vector2.new(mousePos.X, mousePos.Y)
-                    line.To = Vector2.new(pos.X, pos.Y); line.Color = color
-                    line.Thickness = 3; line.Transparency = 0.5; line.Visible = true
-                    tracerLines[player] = line
                 end
                 
                 if nametagsEnabled then
@@ -1099,14 +1039,10 @@ end
 
 Tabs.Visual:CreateSection("ESP")
 Tabs.Visual:CreateToggle("ESP", {Title = "ESP", Default = false}):OnChanged(function(v) espEnabled = v end)
-Tabs.Visual:CreateSection("Tracers")
-Tabs.Visual:CreateToggle("Tracers", {Title = "Tracers", Default = false}):OnChanged(function(v) tracersEnabled = v end)
 Tabs.Visual:CreateSection("FOV")
 Tabs.Visual:CreateSlider("FOV", {Title = "FOV", Default = 120, Min = 30, Max = 120, Rounding = 0}):OnChanged(function(v) fovValue = v end)
 Tabs.Visual:CreateSection("NameTags")
 Tabs.Visual:CreateToggle("NameTags", {Title = "NameTags", Default = false}):OnChanged(function(v) nametagsEnabled = v end)
-Tabs.Visual:CreateSection("Metal ESP")
-Tabs.Visual:CreateToggle("MetalESP", {Title = "Metal ESP", Default = false}):OnChanged(function(v) metalESPEnabled = v; if v then StartMetalESP() else StopMetalESP() end end)
 
 RunService.RenderStepped:Connect(function()
     Camera.FieldOfView = fovValue
@@ -1121,5 +1057,5 @@ InterfaceManager:SetFolder("BedwarsScript | Likegenm")
 SaveManager:SetFolder("Bedwars | Likegenm/specific-game")
 InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 SaveManager:BuildConfigSection(Tabs.Settings)
-Window:SelectTab("Blatant")
+Window:SelectTab(1)
 SaveManager:LoadAutoloadConfig()
