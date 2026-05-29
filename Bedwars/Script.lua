@@ -583,6 +583,7 @@ local function TriggerLoop()
     if not triggerBotEnabled then return end
     local now = tick()
     if now - triggerBotLastAttack < triggerBotDelay then return end
+    if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return end
     local target = GetTargetUnderCrosshair()
     if target then triggerBotLastAttack = now; TriggerAttack(target) end
 end
@@ -599,6 +600,93 @@ end
 Tabs.Combat:CreateSection("Trigger Bot")
 Tabs.Combat:CreateToggle("TriggerBot", {Title = "Trigger Bot", Default = false}):OnChanged(function(v) triggerBotEnabled = v; if v then StartTriggerBot() else StopTriggerBot() end end)
 Tabs.Combat:CreateSlider("TriggerBotDelay", {Title = "Delay", Default = 0.05, Min = 0, Max = 1, Rounding = 2}):OnChanged(function(v) triggerBotDelay = v end)
+
+local aimAssistEnabled = false
+local aimAssistSpeed = 50
+local aimAssistDistance = 30
+local aimAssistRadius = 150
+local aimAssistColor = Color3.fromRGB(255, 0, 0)
+local aimAssistRainbow = false
+local aimAssistHue = 0
+local aimAssistCircle = Drawing.new("Circle")
+aimAssistCircle.Visible = false
+aimAssistCircle.Thickness = 2
+aimAssistCircle.Filled = false
+aimAssistCircle.NumSides = 60
+aimAssistCircle.Transparency = 0.7
+
+local function GetClosestAimTarget()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local closest = nil
+    local closestDist = aimAssistDistance
+    local myTeam = LocalPlayer.Team
+    local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local targetHrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local hum = player.Character:FindFirstChild("Humanoid")
+            local head = player.Character:FindFirstChild("Head")
+            if targetHrp and hum and hum.Health > 0 and head then
+                if myTeam and player.Team and myTeam == player.Team then continue end
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local screenDist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                    local worldDist = (targetHrp.Position - hrp.Position).Magnitude
+                    if worldDist <= aimAssistDistance and screenDist <= aimAssistRadius then
+                        closest = player
+                        closestDist = worldDist
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function AimAssistLoop()
+    if not aimAssistEnabled then return end
+    if not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+    local target = GetClosestAimTarget()
+    if target and target.Character then
+        local head = target.Character:FindFirstChild("Head")
+        if head then
+            local pos = Camera:WorldToViewportPoint(head.Position)
+            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            local delta = Vector2.new(pos.X - center.X, pos.Y - center.Y)
+            local smoothFactor = aimAssistSpeed / 100
+            mousemoverel(delta.X * smoothFactor * 0.1, delta.Y * smoothFactor * 0.1)
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if aimAssistEnabled then
+        local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        aimAssistCircle.Position = center
+        aimAssistCircle.Radius = aimAssistRadius
+        if aimAssistRainbow then
+            aimAssistHue = (aimAssistHue + 0.001) % 1
+            aimAssistCircle.Color = Color3.fromHSV(aimAssistHue, 1, 1)
+        else
+            aimAssistCircle.Color = aimAssistColor
+        end
+        aimAssistCircle.Visible = true
+    else
+        aimAssistCircle.Visible = false
+    end
+    AimAssistLoop()
+end)
+
+Tabs.Combat:CreateSection("Aim Assist")
+Tabs.Combat:CreateToggle("AimAssist", {Title = "Aim Assist", Default = false}):OnChanged(function(v) aimAssistEnabled = v end)
+Tabs.Combat:CreateSlider("AimAssistSpeed", {Title = "Speed", Default = 50, Min = 1, Max = 100, Rounding = 0}):OnChanged(function(v) aimAssistSpeed = v end)
+Tabs.Combat:CreateSlider("AimAssistDistance", {Title = "Distance", Default = 30, Min = 5, Max = 50, Rounding = 0}):OnChanged(function(v) aimAssistDistance = v end)
+Tabs.Combat:CreateSlider("AimAssistRadius", {Title = "Radius", Default = 150, Min = 50, Max = 300, Rounding = 0}):OnChanged(function(v) aimAssistRadius = v end)
+Tabs.Combat:CreateToggle("AimAssistRainbow", {Title = "Rainbow", Default = false}):OnChanged(function(v) aimAssistRainbow = v end)
+Tabs.Combat:CreateColorpicker("AimAssistColor", {Title = "Color", Default = Color3.fromRGB(255, 0, 0)}):OnChanged(function(v) aimAssistColor = v end)
 
 local scaffoldEnabled = false
 local scaffoldGridSize = 3
@@ -775,6 +863,55 @@ end
 
 Tabs.Blatant:CreateSection("Inf Jumps")
 Tabs.Blatant:CreateToggle("InfJumps", {Title = "Inf Jumps", Default = false}):OnChanged(function(v) infJumpsEnabled = v; if v then StartInfJumps() else StopInfJumps() end end)
+
+local spiderEnabled = false
+local spiderMode = "Velocity"
+local spiderSpeed = 30
+local spiderConnection = nil
+
+local function SpiderLoop()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not hrp or not hum then return end
+    
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    rayParams.FilterDescendantsInstances = {char, Camera}
+    
+    local vec = hum.MoveDirection * 2.5
+    local ray = workspace:Raycast(hrp.Position - Vector3.new(0, 2, 0), vec, rayParams)
+    
+    if spiderConnection._active and not ray then
+        hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
+    end
+    
+    spiderConnection._active = ray
+    if ray and ray.Normal.Y == 0 then
+        if spiderMode == "CFrame" then
+            hrp.CFrame = hrp.CFrame + Vector3.new(0, spiderSpeed * 0.01, 0)
+            hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, 0, hrp.AssemblyLinearVelocity.Z)
+        elseif spiderMode == "Velocity" then
+            hrp.AssemblyLinearVelocity = Vector3.new(hrp.AssemblyLinearVelocity.X, spiderSpeed, hrp.AssemblyLinearVelocity.Z)
+        end
+    end
+end
+
+local function StartSpider()
+    if spiderConnection then return end
+    spiderConnection = RunService.Heartbeat:Connect(SpiderLoop)
+    spiderConnection._active = nil
+end
+
+local function StopSpider()
+    if spiderConnection then spiderConnection:Disconnect(); spiderConnection = nil end
+end
+
+Tabs.Blatant:CreateSection("Spider")
+Tabs.Blatant:CreateToggle("Spider", {Title = "Spider", Default = false}):OnChanged(function(v) spiderEnabled = v; if v then StartSpider() else StopSpider() end end)
+Tabs.Blatant:CreateDropdown("SpiderMode", {Title = "Mode", Values = {"Velocity", "CFrame"}, Default = "Velocity"}):OnChanged(function(v) spiderMode = v end)
+Tabs.Blatant:CreateSlider("SpiderSpeed", {Title = "Speed", Default = 30, Min = 10, Max = 100, Rounding = 0}):OnChanged(function(v) spiderSpeed = v end)
 
 local chestStealEnabled = false
 local chestStealRange = 30
