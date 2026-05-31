@@ -777,6 +777,60 @@ end
 Tabs.Blatant:CreateSection("Scaffold")
 Tabs.Blatant:CreateToggle("Scaffold", {Title = "Scaffold", Default = false}):OnChanged(function(v) scaffoldEnabled = v; if v then StartScaffold() else StopScaffold() end end)
 
+local noclipEnabled = false
+local noclipMode = "Collide"
+local noclipWallSize = 5
+local noclipConnection = nil
+
+local function NoclipLoop()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    if noclipMode == "Collide" then
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
+        end
+    elseif noclipMode == "Teleport" then
+        local look = Camera.CFrame.LookVector
+        local dir = Vector3.new(look.X, 0, look.Z).Unit
+        local ray = Ray.new(hrp.Position, dir * noclipWallSize)
+        local hit = workspace:FindPartOnRay(ray, char)
+        if hit then
+            hrp.CFrame = CFrame.new(hrp.Position + dir * noclipWallSize)
+        end
+    elseif noclipMode == "Tween" then
+        local look = Camera.CFrame.LookVector
+        local dir = Vector3.new(look.X, 0, look.Z).Unit
+        local ray = Ray.new(hrp.Position, dir * noclipWallSize)
+        local hit = workspace:FindPartOnRay(ray, char)
+        if hit then
+            TweenService:Create(hrp, TweenInfo.new(0.05), {CFrame = CFrame.new(hrp.Position + dir * noclipWallSize)}):Play()
+        end
+    end
+end
+
+local function StartNoclip()
+    if noclipConnection then return end
+    noclipConnection = RunService.Heartbeat:Connect(NoclipLoop)
+end
+
+local function StopNoclip()
+    if noclipConnection then noclipConnection:Disconnect(); noclipConnection = nil end
+    local char = LocalPlayer.Character
+    if char then
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BasePart") then v.CanCollide = true end
+        end
+    end
+end
+
+Tabs.Blatant:CreateSection("Noclip")
+Tabs.Blatant:CreateToggle("Noclip", {Title = "Noclip", Default = false}):OnChanged(function(v) noclipEnabled = v; if v then StartNoclip() else StopNoclip() end end)
+Tabs.Blatant:CreateDropdown("NoclipMode", {Title = "Mode", Values = {"Collide", "Teleport", "Tween"}, Default = "Collide"}):OnChanged(function(v) noclipMode = v end)
+Tabs.Blatant:CreateSlider("NoclipWallSize", {Title = "Wall Size", Default = 5, Min = 1, Max = 10, Rounding = 0}):OnChanged(function(v) noclipWallSize = v end)
+
 local speedHackEnabled = false
 local speedHackValue = 21
 local speedHackConnection = nil
