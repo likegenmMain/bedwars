@@ -913,6 +913,136 @@ Tabs.Blatant:CreateToggle("Spider", {Title = "Spider", Default = false}):OnChang
 Tabs.Blatant:CreateDropdown("SpiderMode", {Title = "Mode", Values = {"Velocity", "CFrame"}, Default = "Velocity"}):OnChanged(function(v) spiderMode = v end)
 Tabs.Blatant:CreateSlider("SpiderSpeed", {Title = "Speed", Default = 30, Min = 10, Max = 100, Rounding = 0}):OnChanged(function(v) spiderSpeed = v end)
 
+local bedDefendEnabled = false
+
+local function initBedwars()
+    pcall(function()
+        local lplr = Players.LocalPlayer
+        local Knit = require(lplr.PlayerScripts.TS.knit).Knit
+    end)
+end
+
+local function getPlacedBlock(pos)
+    if not pos then return nil end
+    initBedwars()
+    local block, blockPos
+    pcall(function()
+        local BlockEngine = require(ReplicatedStorage['rbxts_include']['node_modules']['@easy-games']['block-engine'].out).BlockEngine
+        local bp = BlockEngine:getBlockPosition(pos)
+        block = BlockEngine:getStore():getBlockAt(bp)
+        blockPos = bp
+    end)
+    if block then return block, blockPos end
+    
+    local overlap = OverlapParams.new()
+    overlap.FilterType = Enum.RaycastFilterType.Include
+    local blocksFolder = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Blocks") or workspace:FindFirstChild("Blocks")
+    if blocksFolder then
+        overlap.FilterDescendantsInstances = {blocksFolder}
+    end
+    local parts = workspace:GetPartBoundsInBox(CFrame.new(pos), Vector3.new(2.8, 2.8, 2.8), overlap)
+    for _, p in ipairs(parts) do
+        if p:IsA("BasePart") and p.Name ~= "bed" and not p:GetAttribute("NoBreak") then
+            return p, Vector3.new(math.round(pos.X / 3), math.round(pos.Y / 3), math.round(pos.Z / 3))
+        end
+    end
+    return nil
+end
+
+local function placeBlock(pos, blockName)
+    local blockPlacerModule = ReplicatedStorage:FindFirstChild("rbxts_include")
+        and ReplicatedStorage.rbxts_include:FindFirstChild("node_modules")
+        and ReplicatedStorage.rbxts_include.node_modules:FindFirstChild("@easy-games")
+        and ReplicatedStorage.rbxts_include.node_modules["@easy-games"]:FindFirstChild("block-engine")
+        and ReplicatedStorage.rbxts_include.node_modules["@easy-games"]["block-engine"]:FindFirstChild("out")
+        and ReplicatedStorage.rbxts_include.node_modules["@easy-games"]["block-engine"].out:FindFirstChild("client")
+        and ReplicatedStorage.rbxts_include.node_modules["@easy-games"]["block-engine"].out.client:FindFirstChild("placement")
+        and ReplicatedStorage.rbxts_include.node_modules["@easy-games"]["block-engine"].out.client.placement:FindFirstChild("block-placer")
+    
+    if blockPlacerModule then
+        local BlockPlacer = require(blockPlacerModule).BlockPlacer
+        local BlockEngine = require(ReplicatedStorage.rbxts_include.node_modules["@easy-games"]["block-engine"].out).BlockEngine
+        local placer = BlockPlacer.new(BlockEngine, blockName)
+        if placer then
+            local blockPos = BlockEngine:getBlockPosition(pos)
+            placer:placeBlock(blockPos)
+        end
+    end
+end
+
+local function getBedNear()
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local localPosition = hrp and hrp.Position or Vector3.zero
+    for _, v in ipairs(CollectionService:GetTagged('bed')) do
+        if (localPosition - v.Position).Magnitude < 20 and v:GetAttribute('Team'..(LocalPlayer:GetAttribute('Team') or -1)..'NoBreak') then
+            return v
+        end
+    end
+end
+
+local function getBlocks()
+    local blocks = {}
+    local inventory = nil
+    pcall(function()
+        local InventoryUtil = require(ReplicatedStorage.TS.inventory["inventory-util"]).InventoryUtil
+        inventory = InventoryUtil.getInventory(LocalPlayer)
+    end)
+    
+    if inventory and inventory.items then
+        local itemMeta = require(ReplicatedStorage.TS.item['item-meta']).items
+        for _, item in ipairs(inventory.items) do
+            local meta = itemMeta[item.itemType]
+            local block = meta and meta.block
+            if block then
+                table.insert(blocks, {item.itemType, block.health or 10})
+            end
+        end
+    end
+    table.sort(blocks, function(a, b) return a[2] > b[2] end)
+    return blocks
+end
+
+local function getPyramid(size, grid)
+    local positions = {}
+    for h = size, 0, -1 do
+        for w = h, 0, -1 do
+            table.insert(positions, Vector3.new(w, (size - h), ((h + 1) - w)) * grid)
+            table.insert(positions, Vector3.new(w * -1, (size - h), ((h + 1) - w)) * grid)
+            table.insert(positions, Vector3.new(w, (size - h), (h - w) * -1) * grid)
+            table.insert(positions, Vector3.new(w * -1, (size - h), (h - w) * -1) * grid)
+        end
+    end
+    return positions
+end
+
+local function buildDefense()
+    local bed = getBedNear()
+    local bedPos = bed and bed.Position or nil
+    if bedPos then
+        local blocks = getBlocks()
+        for i, block in ipairs(blocks) do
+            for _, pos in ipairs(getPyramid(i, 3)) do
+                if not bedDefendEnabled then break end
+                local targetPos = bedPos + pos
+                if not getPlacedBlock(targetPos) then
+                    placeBlock(targetPos, block[1])
+                    task.wait(0.05)
+                end
+            end
+        end
+        bedDefendEnabled = false
+    end
+end
+
+local function StartBedDefend()
+    if not bedDefendEnabled then return end
+    task.spawn(buildDefense)
+end
+
+Tabs.Blatant:CreateSection("Bed Protect")
+Tabs.Blatant:CreateToggle("BedDefend", {Title = "Bed Protect", Default = false}):OnChanged(function(v) bedDefendEnabled = v; if v then StartBedDefend() end end)
+
 local chestStealEnabled = false
 local chestStealRange = 30
 local chestStealDelay = 0.1
